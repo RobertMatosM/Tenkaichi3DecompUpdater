@@ -1,0 +1,30 @@
+#+title: Tenkaichi3DecompUpdater
+#+author: Robert J. Matos Montenegro
+
+* INFO
+Simple CLI manager for installing and updating the latest published ~Tenkaichi3Decomp~ (~z3xox~) Linux release from GitHub.
+
+This is more of a personal tool but its useful until the actual devs make it easier to upgrade the release. Wrote a prototype first and refactored it with the assistance of ChatGPT.
+* USAGE
+#+begin_src bash
+python3 run.py install
+python3 run.py install --parent "$HOME/Games"
+python3 run.py update
+#+end_src
+The installation is created at ~$HOME/Games/Tenkaichi3Decomp~ in that example.
+The default interactive parent directory is also ~$HOME/Games~.
+The updater reads registered absolute paths from ~~/.local/share/bt3DecompUpdater/paths~.
+** Important behavior
+- Updating replaces the installation with a fresh release tree; ~textures/~, ~saves/~, and ~bt3_settings.txt~ are copied forward by default. Add any additional user-data paths to ~PRESERVE_PATHS~ in ~src/update.py~.
+- The ZIP's expected top-level folder is `Tenkaichi3Decomp/`. The scripts fail clearly if the release asset name or directory layout changes.
+- The updater refuses to overwrite an existing folder during a fresh install.
+- This is a starter, not a guarantee against every filesystem, network, or disk
+  failure. Test with a disposable install and keep separate backups of valuable
+  save data before trusting automated updates.
+* FAQ
+** Windows?
+I don't use Windows but maybe. Can't test it.
+** Future?
+If something changes in the releases, I will fix it (unless they add something that makes this tool useless).
+** GUI?
+I will think about it if its worth. For something so trivial, not sure about it.
