@@ -11,12 +11,12 @@ import requests
 REPO_OWNER = "z3xox"
 REPO_NAME = "Tenkaichi3Decomp"
 REPO_ASSET_NAME = "Tenkaichi3Decomp-linux-x64.zip"
-METADATA_FILENAME = "bt3DecompUpdater_meta.json"
+METADATA_FILENAME = "Tenkaichi3DecompUpdater_meta.json"
 
-APP_DATA_DIR = Path.home() / ".local" / "share" / "bt3DecompUpdater"
+APP_DATA_DIR = Path.home() / ".local" / "share" / "Tenkaichi3DecompUpdater"
 INSTALLS_FILE = APP_DATA_DIR / "paths"
 RELEASE_API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
-USER_AGENT = "bt3DecompUpdater (Linux)"
+USER_AGENT = "Tenkaichi3DecompUpdater (Linux)"
 
 
 def get_latest_release() -> tuple[dict, dict]:

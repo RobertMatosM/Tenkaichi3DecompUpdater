@@ -13,7 +13,7 @@ python3 run.py update
 #+end_src
 The installation is created at ~$HOME/Games/Tenkaichi3Decomp~ in that example.
 The default interactive parent directory is also ~$HOME/Games~.
-The updater reads registered absolute paths from ~~/.local/share/bt3DecompUpdater/paths~.
+The updater reads registered absolute paths from ~~/.local/share/Tenkaichi3DecompUpdater/paths~.
 ** Important behavior
 - Updating replaces the installation with a fresh release tree; ~textures/~, ~saves/~, and ~bt3_settings.txt~ are copied forward by default. Add any additional user-data paths to ~PRESERVE_PATHS~ in ~src/update.py~.
 - The ZIP's expected top-level folder is `Tenkaichi3Decomp/`. The scripts fail clearly if the release asset name or directory layout changes.

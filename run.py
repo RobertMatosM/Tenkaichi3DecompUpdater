@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Project launcher for bt3DecompUpdater (Linux)."""
+"""Project launcher for Tenkaichi3DecompUpdater (Linux)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ VENV_DIR = PROJECT_DIR / ".venv"
 VENV_PYTHON = VENV_DIR / "bin" / "python"
 REQUIREMENTS = PROJECT_DIR / "requirements.txt"
 
-LOGGER = logging.getLogger("bt3DecompUpdater")
+LOGGER = logging.getLogger("Tenkaichi3DecompUpdater")
 
 
 def ensure_venv() -> None:
@@ -38,7 +38,7 @@ def run_checked(command: list[str | Path]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        prog="bt3DecompUpdater",
+        prog="Tenkaichi3DecompUpdater",
         description="Install or update Tenkaichi3Decomp from its GitHub releases.",
     )
     parser.add_argument(

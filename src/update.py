@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Update installations registered by bt3DecompUpdater."""
+"""Update installations registered by Tenkaichi3DecompUpdater."""
 
 from __future__ import annotations
 
