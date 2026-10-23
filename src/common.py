@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import stat
 from pathlib import Path, PurePosixPath
+import subprocess
 import zipfile
 
 import requests
@@ -17,6 +19,7 @@ APP_DATA_DIR = Path.home() / ".local" / "share" / "Tenkaichi3DecompUpdater"
 INSTALLS_FILE = APP_DATA_DIR / "paths"
 RELEASE_API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
 USER_AGENT = "Tenkaichi3DecompUpdater (Linux)"
+EXECUTABLE_FILENAMES = ("Tenkaichi3Decomp", "Tenkaichi3Decomp-setup")
 
 
 def get_latest_release() -> tuple[dict, dict]:
@@ -100,6 +103,29 @@ def safe_extract_zip(archive_path: Path, destination: Path) -> None:
                 ) from exc
 
         archive.extractall(root)
+
+
+def make_release_executables(install_dir: Path) -> None:
+    """Ensure the game and setup launchers from a release can be executed."""
+    for filename in EXECUTABLE_FILENAMES:
+        executable = install_dir / filename
+        if not executable.is_file():
+            raise RuntimeError(
+                f"The release archive did not contain the expected file "
+                f"{filename} in {install_dir}."
+            )
+
+        executable.chmod(stat.S_IMODE(executable.stat().st_mode) | 0o111)
+
+
+def launch_setup(install_dir: Path) -> None:
+    """Start the release's GUI setup in its installation directory."""
+    setup_path = install_dir / "Tenkaichi3Decomp-setup"
+    subprocess.Popen(
+        [str(setup_path)],
+        cwd=install_dir,
+        start_new_session=True,
+    )
 
 
 def write_metadata(install_dir: Path, version: str) -> None:

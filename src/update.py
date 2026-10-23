@@ -17,6 +17,8 @@ from common import (
     REPO_NAME,
     download_asset,
     get_latest_release,
+    launch_setup,
+    make_release_executables,
     read_install_paths,
     read_installed_version,
     safe_extract_zip,
@@ -100,6 +102,7 @@ def update_one(
                 f"{REPO_NAME}/."
             )
 
+        make_release_executables(staged_install)
         preserve_user_data(install_dir, staged_install)
         write_metadata(staged_install, latest_version)
 
@@ -113,6 +116,7 @@ def update_one(
             old_install_backup.rename(install_dir)
             raise
 
+    launch_setup(install_dir)
     return f"Updated {install_dir}: {current_tag} -> {latest_version}"
 
 

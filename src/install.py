@@ -15,6 +15,8 @@ from common import (
     REPO_NAME,
     download_asset,
     get_latest_release,
+    launch_setup,
+    make_release_executables,
     register_install,
     safe_extract_zip,
     write_metadata,
@@ -63,10 +65,12 @@ def install(parent_dir: Path) -> Path:
                 f"{REPO_NAME}/. The archive layout may have changed."
             )
 
+        make_release_executables(staged_install)
         write_metadata(staged_install, version)
         staged_install.rename(install_dir)
 
     register_install(install_dir)
+    launch_setup(install_dir)
     print(f"Installed {REPO_NAME} {version} at {install_dir}")
     return install_dir
 
