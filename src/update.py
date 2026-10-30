@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 import json
 from pathlib import Path
 import shutil
@@ -14,6 +15,7 @@ from packaging.version import InvalidVersion, Version
 import requests
 
 from common import (
+    LabeledProgressCallback,
     METADATA_FILENAME,
     ProgressDisplay,
     REPO_NAME,
@@ -68,10 +70,14 @@ def remove_path(path: Path) -> None:
         shutil.rmtree(path)
 
 
-def overlay_install(source: Path, destination: Path) -> None:
+def overlay_install(
+    source: Path,
+    destination: Path,
+    progress_callback: LabeledProgressCallback | None = None,
+) -> None:
     """Copy release files over an install while leaving unrelated files intact."""
     total = tree_size(source)
-    progress = ProgressDisplay("  Applying release files")
+    progress = ProgressDisplay("Applying release files", progress_callback)
     progress.update(0, total if total > 0 else None)
     copied = 0
 
@@ -136,8 +142,11 @@ def update_one(
     install_dir: Path,
     latest_version: str,
     archive_path: Path,
+    on_message: Callable[[str], None] | None = None,
+    on_progress: LabeledProgressCallback | None = None,
 ) -> str:
     """Stage and swap one installation, rolling back if the swap fails."""
+    emit = on_message or print
     if not install_dir.is_dir():
         return f"Skipping missing installation: {install_dir}"
 
@@ -171,8 +180,8 @@ def update_one(
     ) as temporary_dir:
         staging = Path(temporary_dir)
         extracted_dir = staging / "extracted"
-        print(f"  Extracting release {latest_version}...")
-        extraction_progress = ProgressDisplay("  Extraction")
+        emit(f"  Extracting release {latest_version}...")
+        extraction_progress = ProgressDisplay("Extraction", on_progress)
         safe_extract_zip(
             archive_path,
             extracted_dir,
@@ -193,21 +202,103 @@ def update_one(
         # Preserve the current tree, then overwrite paths supplied by the new
         # release. Files that the release no longer contains remain installed.
         merged_install = staging / "merged-install"
-        copy_tree_with_progress(install_dir, merged_install)
-        overlay_install(staged_install, merged_install)
+        copy_tree_with_progress(install_dir, merged_install, on_progress)
+        overlay_install(staged_install, merged_install, on_progress)
 
         # Both paths are on the same filesystem. Move the old install aside,
         # then swap in the staged overlay. Restore the old directory on failure.
         old_install_backup = staging / "previous-install"
-        install_dir.rename(old_install_backup)
+        try:
+            install_dir.rename(old_install_backup)
+        except OSError as exc:
+            if sys.platform == "win32":
+                raise RuntimeError(
+                    f"Windows could not replace {install_dir}. Close the game and "
+                    "setup window, then try the update again."
+                ) from exc
+            raise
         try:
             merged_install.rename(install_dir)
         except Exception:
-            old_install_backup.rename(install_dir)
+            try:
+                old_install_backup.rename(install_dir)
+            except OSError as rollback_error:
+                raise RuntimeError(
+                    f"The update swap failed and the previous installation could "
+                    f"not be restored automatically. Its backup is at "
+                    f"{old_install_backup}."
+                ) from rollback_error
             raise
 
     launch_setup(install_dir)
     return f"Updated {install_dir}: {current_tag} -> {latest_version}"
+
+
+def update_installations(
+    check_only: bool = False,
+    on_message: Callable[[str], None] | None = None,
+    on_progress: LabeledProgressCallback | None = None,
+) -> int:
+    """Check or update every registered install, reporting optional UI events."""
+    emit = on_message or print
+    try:
+        install_paths = read_install_paths()
+        if not install_paths:
+            emit("No installations are registered yet.")
+            return 0
+
+        step_count = 1 if check_only else 4
+        emit(f"[1/{step_count}] Looking up the latest GitHub release...")
+        release, asset = get_latest_release()
+        latest_version = release["tag_name"]
+
+        if check_only:
+            emit(f"Latest release: {latest_version}")
+            for install_dir in install_paths:
+                emit(check_one(install_dir, latest_version))
+            return 0
+
+        # Download once and reuse the archive for every registered installation.
+        with tempfile.TemporaryDirectory(prefix=".bt3-updater-download-") as temp:
+            emit(f"[2/4] Downloading release {latest_version}...")
+            download_progress = ProgressDisplay("Download", on_progress)
+            archive_path = download_asset(
+                asset,
+                Path(temp),
+                download_progress.update,
+            )
+            download_progress.finish()
+            failures = 0
+            for index, install_dir in enumerate(install_paths, start=1):
+                try:
+                    emit(
+                        f"[3/4] Processing installation {index}/"
+                        f"{len(install_paths)}: {install_dir}"
+                    )
+                    emit(
+                        update_one(
+                            install_dir,
+                            latest_version,
+                            archive_path,
+                            emit,
+                            on_progress,
+                        )
+                    )
+                except (
+                    OSError,
+                    RuntimeError,
+                    requests.RequestException,
+                    ValueError,
+                ) as exc:
+                    failures += 1
+                    emit(f"Failed to update {install_dir}: {exc}")
+
+            emit("[4/4] Update run complete.")
+
+        return 1 if failures else 0
+    except (OSError, RuntimeError, requests.RequestException, ValueError) as exc:
+        emit(f"Update failed: {exc}")
+        return 1
 
 
 def main() -> int:
@@ -219,56 +310,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    try:
-        install_paths = read_install_paths()
-        if not install_paths:
-            print("No installations are registered yet.")
-            return 0
+    def report(message: str) -> None:
+        if message.startswith(("Failed to update", "Update failed:")):
+            print(message, file=sys.stderr)
+        else:
+            print(message)
 
-        step_count = 1 if args.check_only else 4
-        print(f"[1/{step_count}] Looking up the latest GitHub release...")
-        release, asset = get_latest_release()
-        latest_version = release["tag_name"]
-
-        if args.check_only:
-            print(f"Latest release: {latest_version}")
-            for install_dir in install_paths:
-                print(check_one(install_dir, latest_version))
-            return 0
-
-        # Download once and reuse the archive for every registered installation.
-        with tempfile.TemporaryDirectory(prefix=".bt3-updater-download-") as temp:
-            print(f"[2/4] Downloading release {latest_version}...")
-            download_progress = ProgressDisplay("Download")
-            archive_path = download_asset(
-                asset,
-                Path(temp),
-                download_progress.update,
-            )
-            download_progress.finish()
-            failures = 0
-            for index, install_dir in enumerate(install_paths, start=1):
-                try:
-                    print(
-                        f"[3/4] Processing installation {index}/"
-                        f"{len(install_paths)}: {install_dir}"
-                    )
-                    print(update_one(install_dir, latest_version, archive_path))
-                except (
-                    OSError,
-                    RuntimeError,
-                    requests.RequestException,
-                    ValueError,
-                ) as exc:
-                    failures += 1
-                    print(f"Failed to update {install_dir}: {exc}", file=sys.stderr)
-
-            print("[4/4] Update run complete.")
-
-        return 1 if failures else 0
-    except (OSError, RuntimeError, requests.RequestException, ValueError) as exc:
-        print(f"Update failed: {exc}", file=sys.stderr)
-        return 1
+    return update_installations(args.check_only, report)
 
 
 if __name__ == "__main__":

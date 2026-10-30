@@ -1,0 +1,107 @@
+name: Package updater
+
+on:
+  push:
+    branches: [windows-backend]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }} bundle
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            platform: windows-x64
+            archive: Tenkaichi3DecompUpdater-windows-x64.zip
+          - runner: ubuntu-22.04
+            platform: linux-x64
+            archive: Tenkaichi3DecompUpdater-linux-x64.tar.gz
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: python -m pip install -r requirements-build.txt
+
+      - name: Verify Tkinter is available
+        run: python -c "import tkinter; print('Tcl/Tk:', tkinter.TkVersion)"
+
+      - name: Build one-folder GUI app
+        run: >-
+          python -m PyInstaller
+          --noconfirm
+          --clean
+          --windowed
+          --onedir
+          --name Tenkaichi3DecompUpdater
+          --distpath "${{ runner.temp }}/dist"
+          --workpath "${{ runner.temp }}/pyinstaller-work"
+          --specpath "${{ runner.temp }}/pyinstaller-spec"
+          src/gui.py
+
+      - name: Add usage notes and create Windows ZIP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $app = Join-Path $env:RUNNER_TEMP "dist/Tenkaichi3DecompUpdater"
+          Copy-Item PACKAGED_README.txt (Join-Path $app "README.txt")
+          Copy-Item LICENSE (Join-Path $app "LICENSE.txt")
+          $archive = Join-Path $env:RUNNER_TEMP "${{ matrix.archive }}"
+          Compress-Archive -Path $app -DestinationPath $archive
+          "path=$archive" >> $env:GITHUB_OUTPUT
+        id: archive
+
+      - name: Add usage notes and create Linux tarball
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          app="$RUNNER_TEMP/dist/Tenkaichi3DecompUpdater"
+          cp PACKAGED_README.txt "$app/README.txt"
+          cp LICENSE "$app/LICENSE.txt"
+          archive="$RUNNER_TEMP/${{ matrix.archive }}"
+          tar -czf "$archive" -C "$RUNNER_TEMP/dist" Tenkaichi3DecompUpdater
+          echo "path=$archive" >> "$GITHUB_OUTPUT"
+        id: archive-linux
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: updater-${{ matrix.platform }}
+          path: ${{ steps.archive.outputs.path || steps.archive-linux.outputs.path }}
+          if-no-files-found: error
+          retention-days: 7
+
+  attach-to-release:
+    name: Attach bundles to release
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download platform bundles
+        uses: actions/download-artifact@v8
+        with:
+          pattern: updater-*
+          path: ${{ runner.temp }}/release-assets
+          merge-multiple: true
+
+      - name: Upload bundles to the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" "${{ runner.temp }}/release-assets/"* --clobber

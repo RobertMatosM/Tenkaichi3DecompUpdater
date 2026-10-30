@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Project launcher for Tenkaichi3DecompUpdater (Linux)."""
+"""Project launcher for Tenkaichi3DecompUpdater."""
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -12,7 +13,7 @@ import venv
 
 PROJECT_DIR = Path(__file__).resolve().parent
 VENV_DIR = PROJECT_DIR / ".venv"
-VENV_PYTHON = VENV_DIR / "bin" / "python"
+VENV_PYTHON = VENV_DIR / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 REQUIREMENTS = PROJECT_DIR / "requirements.txt"
 
 LOGGER = logging.getLogger("Tenkaichi3DecompUpdater")
@@ -51,11 +52,12 @@ def main() -> int:
             "update",
             "remove",
             "list",
+            "gui",
             "t",
             "test",
         ),
         help=(
-            "Action to run: install (i), update (u), remove, list, or test (t)."
+            "Action to run: install (i), update (u), remove, list, gui, or test (t)."
         ),
     )
     args, child_args = parser.parse_known_args()
@@ -93,6 +95,7 @@ def main() -> int:
             "update": PROJECT_DIR / "src" / "update.py",
             "remove": PROJECT_DIR / "src" / "remove.py",
             "list": PROJECT_DIR / "src" / "list_installations.py",
+            "gui": PROJECT_DIR / "src" / "gui.py",
             "t": PROJECT_DIR / "test.py",
             "test": PROJECT_DIR / "test.py",
         }

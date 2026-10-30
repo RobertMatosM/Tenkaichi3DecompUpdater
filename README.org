@@ -2,7 +2,7 @@
 #+author: Robert J. Matos Montenegro
 
 * INFO
-Simple CLI manager for installing and updating the latest published ~Tenkaichi3Decomp~ (~z3xox~) Linux release from GitHub.
+Simple manager for installing and updating the latest published ~Tenkaichi3Decomp~ (~z3xox~) Linux or Windows x86-64 release from GitHub. It provides both a command-line interface and a small desktop GUI.
 
 This is more of a personal tool but its useful until the actual devs make it easier to upgrade the release. Wrote a prototype first and refactored it with the assistance of ChatGPT.
 * USAGE
@@ -13,23 +13,26 @@ python3 run.py update
 python3 run.py update --check-only
 python3 run.py remove
 python3 run.py list
+python3 run.py gui
 #+end_src
-The installation is created at ~$HOME/Games/Tenkaichi3Decomp~ in that example.
-The default interactive parent directory is also ~$HOME/Games~.
-The updater reads registered absolute paths from ~$HOME/.local/share/Tenkaichi3DecompUpdater/paths~.
+On Windows, run the same commands with ~py run.py install~ (or ~py run.py update~, ~remove~, ~list~, and ~gui~).
+The GUI has buttons for install, update all registered installations, check for updates, and remove the selected installation. The installation list refreshes when an operation completes. Its activity panel and progress bar show operation progress.
+Linux users need Tkinter available to their Python installation (often provided by a system package named ~python3-tk~).
+The default installation is created at ~~/Games/Tenkaichi3Decomp~ on Linux or ~%USERPROFILE%\Games\Tenkaichi3Decomp~ on Windows.
+The updater stores registered absolute paths in ~$HOME/.local/share/Tenkaichi3DecompUpdater/paths~ on Linux and ~%LOCALAPPDATA%\Tenkaichi3DecompUpdater\paths~ on Windows.
+** Packaged releases
+Published GitHub releases will include a portable Windows ZIP and Linux tarball containing the GUI app and its Python dependencies. The packaged app does not require users to install Python. Extract the archive and launch the updater executable inside its folder.
+Build dependencies are listed separately in ~requirements-build.txt~. The release workflow builds on native Windows and Linux runners; Linux bundles use Ubuntu 22.04 as the compatibility baseline.
 ** Important behavior
 - Updating overlays the fresh release onto the existing installation: matching files are overwritten, and files absent from the release are retained. ~textures/~, ~saves/~, and ~bt3_settings.txt~ are preserved from the existing install when those paths are included in the release.
 - ~update --check-only~ reports the latest release and whether each registered installation needs an update, without downloading or replacing game files.
 - Install and update show numbered stages with progress for downloading and extracting releases. Updates also track preserving the existing files and applying release files.
 - The ZIP's expected top-level folder is `Tenkaichi3Decomp/`. The scripts fail clearly if the release asset name or directory layout changes.
 - The updater refuses to overwrite an existing folder during a fresh install.
+- Close the game and setup window before updating on Windows so the release files can be replaced.
 - This is a starter, not a guarantee against every filesystem, network, or disk
   failure. Test with a disposable install and keep separate backups of valuable
   save data before trusting automated updates.
 * FAQ
-** Windows?
-I don't use Windows but maybe. Can't test it.
 ** Future?
 If something changes in the releases, I will fix it (unless they add something that makes this tool useless).
-** GUI?
-I will think about it if its worth. For something so trivial, not sure about it.

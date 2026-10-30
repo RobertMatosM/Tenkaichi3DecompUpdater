@@ -5,41 +5,96 @@ from __future__ import annotations
 from collections.abc import Callable
 import json
 import os
+import platform
 import shutil
 import stat
 import subprocess
 import sys
 import time
 import zipfile
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import requests
 
 REPO_OWNER = "z3xox"
 REPO_NAME = "Tenkaichi3Decomp"
-REPO_ASSET_NAME = "Tenkaichi3Decomp-linux-x64.zip"
 METADATA_FILENAME = "Tenkaichi3DecompUpdater_meta.json"
 
-APP_DATA_DIR = Path.home() / ".local" / "share" / "Tenkaichi3DecompUpdater"
+def release_asset_name() -> str:
+    """Return the upstream release archive matching this supported platform."""
+    system = platform.system()
+    machine = platform.machine().lower()
+    if machine not in ("x86_64", "amd64"):
+        raise RuntimeError(
+            f"Unsupported architecture {platform.machine()!r}; "
+            "Tenkaichi3Decomp releases are available for x86-64."
+        )
+    if system == "Linux":
+        return "Tenkaichi3Decomp-linux-x64.zip"
+    if system == "Windows":
+        return "Tenkaichi3Decomp-windows-x64.zip"
+    raise RuntimeError(
+        f"Unsupported operating system {system!r}; supported systems are "
+        "Linux and Windows."
+    )
+
+
+REPO_ASSET_NAME = release_asset_name()
+if os.name == "nt":
+    APP_DATA_ROOT = Path(
+        os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")
+    )
+else:
+    APP_DATA_ROOT = Path.home() / ".local" / "share"
+APP_DATA_DIR = APP_DATA_ROOT / "Tenkaichi3DecompUpdater"
 INSTALLS_FILE = APP_DATA_DIR / "paths"
 RELEASE_API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
-USER_AGENT = "Tenkaichi3DecompUpdater (Linux)"
-EXECUTABLE_FILENAMES = ("Tenkaichi3Decomp", "Tenkaichi3Decomp-setup")
+USER_AGENT = "Tenkaichi3DecompUpdater"
+EXECUTABLE_SUFFIX = ".exe" if os.name == "nt" else ""
+EXECUTABLE_FILENAMES = (
+    f"Tenkaichi3Decomp{EXECUTABLE_SUFFIX}",
+    f"Tenkaichi3Decomp-setup{EXECUTABLE_SUFFIX}",
+)
 ProgressCallback = Callable[[int, int | None], None]
+LabeledProgressCallback = Callable[[str, int, int | None], None]
 
 
 class ProgressDisplay:
     """Render byte progress in a terminal, or periodic updates in logs."""
 
-    def __init__(self, label: str) -> None:
+    def __init__(
+        self,
+        label: str,
+        callback: LabeledProgressCallback | None = None,
+    ) -> None:
         self.label = label
+        self.callback = callback
         self.started = time.monotonic()
-        self.is_terminal = sys.stderr.isatty()
+        self.is_terminal = bool(sys.stderr and sys.stderr.isatty())
         self.last_reported_percent = -10
         self.last_reported_time = self.started
+        self.last_callback_percent = -1
+        self.last_callback_time = 0.0
         self.rendered = False
 
     def update(self, completed: int, total: int | None = None) -> None:
+        if self.callback is not None:
+            now = time.monotonic()
+            percent = int(completed * 100 / total) if total else None
+            if (
+                completed != 0
+                and percent != 100
+                and (now - self.last_callback_time < 0.2)
+                and (percent is None or percent <= self.last_callback_percent)
+            ):
+                return
+            self.callback(self.label, completed, total)
+            self.last_callback_time = now
+            if percent is not None:
+                self.last_callback_percent = percent
+            self.rendered = True
+            return
+
         now = time.monotonic()
         elapsed = int(now - self.started)
         elapsed_text = f"{elapsed // 60:02d}:{elapsed % 60:02d}"
@@ -124,10 +179,14 @@ def copy_file_with_progress(
     return completed
 
 
-def copy_tree_with_progress(source: Path, destination: Path) -> None:
+def copy_tree_with_progress(
+    source: Path,
+    destination: Path,
+    progress_callback: LabeledProgressCallback | None = None,
+) -> None:
     """Copy an installation tree while reporting progress for regular files."""
     total = tree_size(source)
-    progress = ProgressDisplay("  Preserving existing files")
+    progress = ProgressDisplay("Preserving existing files", progress_callback)
     progress.update(0, total if total > 0 else None)
     copied = 0
 
@@ -152,7 +211,7 @@ def copy_tree_with_progress(source: Path, destination: Path) -> None:
 
 
 def get_latest_release() -> tuple[dict, dict]:
-    """Return the latest release JSON and this tool's Linux asset metadata."""
+    """Return the latest release JSON and this platform's asset metadata."""
     response = requests.get(
         RELEASE_API_URL,
         headers={
@@ -196,7 +255,7 @@ def download_asset(
 ) -> Path:
     """Stream a release asset to disk rather than holding it all in memory."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / REPO_ASSET_NAME
+    output_path = output_dir / asset.get("name", REPO_ASSET_NAME)
 
     with requests.get(
         asset["browser_download_url"],
@@ -237,14 +296,20 @@ def safe_extract_zip(
 
     with zipfile.ZipFile(archive_path) as archive:
         for member in archive.infolist():
-            # ZIP member paths use forward slashes. Check this form explicitly
-            # before checking the resolved target on the Linux filesystem.
+            # ZIP paths commonly use forward slashes, but reject backslash-based
+            # Windows paths too so archives are safe on both host systems.
             member_name = member.filename
-            posix_name = PurePosixPath(member_name)
-            if posix_name.is_absolute() or ".." in posix_name.parts:
+            posix_name = PurePosixPath(member_name.replace("\\", "/"))
+            windows_name = PureWindowsPath(member_name)
+            if (
+                posix_name.is_absolute()
+                or windows_name.is_absolute()
+                or windows_name.drive
+                or ".." in posix_name.parts
+            ):
                 raise RuntimeError(f"Unsafe path in release archive: {member_name!r}")
 
-            target = (root / member_name).resolve()
+            target = (root / member_name.replace("\\", "/")).resolve()
             try:
                 target.relative_to(root)
             except ValueError as exc:
@@ -258,7 +323,7 @@ def safe_extract_zip(
             progress(0, total if total > 0 else None)
 
         for member in archive.infolist():
-            target = root / member.filename
+            target = root / member.filename.replace("\\", "/")
             if member.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
                 continue
@@ -285,17 +350,18 @@ def make_release_executables(install_dir: Path) -> None:
                 f"{filename} in {install_dir}."
             )
 
-        executable.chmod(stat.S_IMODE(executable.stat().st_mode) | 0o111)
+        if os.name != "nt":
+            executable.chmod(stat.S_IMODE(executable.stat().st_mode) | 0o111)
 
 
 def launch_setup(install_dir: Path) -> None:
     """Start the release's GUI setup in its installation directory."""
-    setup_path = install_dir / "Tenkaichi3Decomp-setup"
-    subprocess.Popen(
-        [str(setup_path)],
-        cwd=install_dir,
-        start_new_session=True,
-    )
+    setup_path = install_dir / f"Tenkaichi3Decomp-setup{EXECUTABLE_SUFFIX}"
+    if os.name == "nt":
+        detached = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen([str(setup_path)], cwd=install_dir, creationflags=detached)
+    else:
+        subprocess.Popen([str(setup_path)], cwd=install_dir, start_new_session=True)
 
 
 def write_metadata(install_dir: Path, version: str) -> None:

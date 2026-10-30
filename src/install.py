@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Install the latest Linux release into a chosen parent directory."""
+"""Install the latest supported release into a chosen parent directory."""
 
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from pathlib import Path
 import shutil
 import sys
@@ -12,6 +13,7 @@ import tempfile
 import requests
 
 from common import (
+    LabeledProgressCallback,
     ProgressDisplay,
     download_asset,
     get_latest_release,
@@ -34,7 +36,12 @@ def choose_parent_dir(argument: Path | None) -> Path:
     return selected.resolve()
 
 
-def install(parent_dir: Path) -> Path:
+def install(
+    parent_dir: Path,
+    on_message: Callable[[str], None] | None = None,
+    on_progress: LabeledProgressCallback | None = None,
+) -> Path:
+    emit = on_message or print
     parent_dir.mkdir(parents=True, exist_ok=True)
     install_dir = parent_dir / REPO_NAME
 
@@ -44,7 +51,7 @@ def install(parent_dir: Path) -> Path:
             "or move/rename the existing installation first."
         )
 
-    print("[1/4] Checking the latest GitHub release...")
+    emit("[1/4] Checking the latest GitHub release...")
     release, asset = get_latest_release()
     version = release["tag_name"]
 
@@ -54,13 +61,13 @@ def install(parent_dir: Path) -> Path:
         prefix=".bt3-updater-install-", dir=parent_dir
     ) as temporary_dir:
         staging = Path(temporary_dir)
-        print(f"[2/4] Downloading release {version}...")
-        download_progress = ProgressDisplay("Download")
+        emit(f"[2/4] Downloading release {version}...")
+        download_progress = ProgressDisplay("Download", on_progress)
         archive_path = download_asset(asset, staging, download_progress.update)
         download_progress.finish()
         extracted_dir = staging / "extracted"
-        print(f"[3/4] Extracting release {version}...")
-        extraction_progress = ProgressDisplay("Extraction")
+        emit(f"[3/4] Extracting release {version}...")
+        extraction_progress = ProgressDisplay("Extraction", on_progress)
         safe_extract_zip(archive_path, extracted_dir, extraction_progress.update)
         extraction_progress.finish()
 
@@ -71,15 +78,15 @@ def install(parent_dir: Path) -> Path:
                 f"{REPO_NAME}/. The archive layout may have changed."
             )
 
-        print("[4/4] Finalizing installation...")
+        emit("[4/4] Finalizing installation...")
         make_release_executables(staged_install)
         write_metadata(staged_install, version)
         staged_install.rename(install_dir)
 
     register_install(install_dir)
-    print("Starting setup...")
+    emit("Starting setup...")
     launch_setup(install_dir)
-    print(f"Installed {REPO_NAME} {version} at {install_dir}")
+    emit(f"Installed {REPO_NAME} {version} at {install_dir}")
     return install_dir
 
 

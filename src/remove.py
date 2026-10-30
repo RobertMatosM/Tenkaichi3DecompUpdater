@@ -34,6 +34,29 @@ def confirm(prompt: str) -> bool:
     return input(f"{prompt} [y/N]: ").strip().lower() in ("y", "yes")
 
 
+def remove_registered_install(install_dir: Path) -> list[str]:
+    """Remove one registered installation and its registry entry."""
+    install_dir = install_dir.expanduser().resolve()
+    if install_dir.name != REPO_NAME:
+        raise ValueError(
+            f"Refusing to remove {install_dir}: registered installation paths "
+            f"must end in {REPO_NAME}/."
+        )
+
+    messages = []
+    if install_dir.is_dir():
+        shutil.rmtree(install_dir)
+        messages.append(f"Removed installation files at {install_dir}")
+    elif install_dir.exists():
+        raise ValueError(
+            f"Refusing to remove {install_dir}: the registered path is not a directory."
+        )
+
+    unregister_install(install_dir)
+    messages.append(f"Removed {install_dir} from the installation registry.")
+    return messages
+
+
 def remove_installation() -> int:
     install_paths = read_install_paths()
     if not install_paths:
@@ -45,32 +68,20 @@ def remove_installation() -> int:
         print("Removal cancelled.")
         return 0
 
-    if install_dir.name != REPO_NAME:
-        print(
-            f"Refusing to remove {install_dir}: registered installation paths "
-            f"must end in {REPO_NAME}/.",
-            file=sys.stderr,
-        )
-        return 1
-
     if install_dir.is_dir():
-        if not confirm(f"Permanently remove {install_dir} and its files?"):
-            print("Removal cancelled.")
-            return 0
-        shutil.rmtree(install_dir)
-        print(f"Removed installation files at {install_dir}")
-    elif install_dir.exists():
-        print(
-            f"Refusing to remove {install_dir}: the registered path is not a directory.",
-            file=sys.stderr,
-        )
-        return 1
-    elif not confirm(f"Remove the stale registry entry for {install_dir}?"):
+        prompt = f"Permanently remove {install_dir} and its files?"
+    else:
+        prompt = f"Remove the stale registry entry for {install_dir}?"
+    if not confirm(prompt):
         print("Removal cancelled.")
         return 0
 
-    unregister_install(install_dir)
-    print(f"Removed {install_dir} from the installation registry.")
+    try:
+        for message in remove_registered_install(install_dir):
+            print(message)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     return 0
 
 
