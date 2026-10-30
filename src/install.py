@@ -12,12 +12,13 @@ import tempfile
 import requests
 
 from common import (
-    REPO_NAME,
+    ProgressDisplay,
     download_asset,
     get_latest_release,
     launch_setup,
     make_release_executables,
     register_install,
+    REPO_NAME,
     safe_extract_zip,
     write_metadata,
 )
@@ -43,7 +44,7 @@ def install(parent_dir: Path) -> Path:
             "or move/rename the existing installation first."
         )
 
-    print("Checking the latest GitHub release...")
+    print("[1/4] Checking the latest GitHub release...")
     release, asset = get_latest_release()
     version = release["tag_name"]
 
@@ -53,10 +54,15 @@ def install(parent_dir: Path) -> Path:
         prefix=".bt3-updater-install-", dir=parent_dir
     ) as temporary_dir:
         staging = Path(temporary_dir)
-        archive_path = download_asset(asset, staging)
+        print(f"[2/4] Downloading release {version}...")
+        download_progress = ProgressDisplay("Download")
+        archive_path = download_asset(asset, staging, download_progress.update)
+        download_progress.finish()
         extracted_dir = staging / "extracted"
-        print(f"Extracting release {version}...")
-        safe_extract_zip(archive_path, extracted_dir)
+        print(f"[3/4] Extracting release {version}...")
+        extraction_progress = ProgressDisplay("Extraction")
+        safe_extract_zip(archive_path, extracted_dir, extraction_progress.update)
+        extraction_progress.finish()
 
         staged_install = extracted_dir / REPO_NAME
         if not staged_install.is_dir():
@@ -65,11 +71,13 @@ def install(parent_dir: Path) -> Path:
                 f"{REPO_NAME}/. The archive layout may have changed."
             )
 
+        print("[4/4] Finalizing installation...")
         make_release_executables(staged_install)
         write_metadata(staged_install, version)
         staged_install.rename(install_dir)
 
     register_install(install_dir)
+    print("Starting setup...")
     launch_setup(install_dir)
     print(f"Installed {REPO_NAME} {version} at {install_dir}")
     return install_dir

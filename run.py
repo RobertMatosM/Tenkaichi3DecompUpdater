@@ -44,8 +44,19 @@ def main() -> int:
     parser.add_argument(
         "action",
         type=str.lower,
-        choices=("i", "install", "u", "update", "t", "test"),
-        help="Action to run: install (i), update (u), or test (t).",
+        choices=(
+            "i",
+            "install",
+            "u",
+            "update",
+            "remove",
+            "list",
+            "t",
+            "test",
+        ),
+        help=(
+            "Action to run: install (i), update (u), remove, list, or test (t)."
+        ),
     )
     args, child_args = parser.parse_known_args()
 
@@ -60,7 +71,18 @@ def main() -> int:
         # Running pip through this Python guarantees that dependencies go into
         # this project's venv; pip itself parses requirements.txt correctly.
         if REQUIREMENTS.is_file():
-            run_checked([VENV_PYTHON, "-m", "pip", "install", "-r", REQUIREMENTS])
+            run_checked(
+                [
+                    VENV_PYTHON,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--quiet",
+                    "--disable-pip-version-check",
+                    "-r",
+                    REQUIREMENTS,
+                ]
+            )
         else:
             LOGGER.warning("No requirements.txt found; skipping dependency installation.")
 
@@ -69,6 +91,8 @@ def main() -> int:
             "install": PROJECT_DIR / "src" / "install.py",
             "u": PROJECT_DIR / "src" / "update.py",
             "update": PROJECT_DIR / "src" / "update.py",
+            "remove": PROJECT_DIR / "src" / "remove.py",
+            "list": PROJECT_DIR / "src" / "list_installations.py",
             "t": PROJECT_DIR / "test.py",
             "test": PROJECT_DIR / "test.py",
         }

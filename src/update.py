@@ -15,7 +15,10 @@ import requests
 
 from common import (
     METADATA_FILENAME,
+    ProgressDisplay,
     REPO_NAME,
+    copy_file_with_progress,
+    copy_tree_with_progress,
     download_asset,
     get_latest_release,
     launch_setup,
@@ -23,6 +26,7 @@ from common import (
     read_install_paths,
     read_installed_version,
     safe_extract_zip,
+    tree_size,
     write_metadata,
 )
 
@@ -66,19 +70,35 @@ def remove_path(path: Path) -> None:
 
 def overlay_install(source: Path, destination: Path) -> None:
     """Copy release files over an install while leaving unrelated files intact."""
-    for source_path in source.iterdir():
-        destination_path = destination / source_path.name
-        if source_path.is_dir() and not source_path.is_symlink():
-            if destination_path.is_symlink() or (
-                destination_path.exists() and not destination_path.is_dir()
-            ):
-                remove_path(destination_path)
-            destination_path.mkdir(exist_ok=True)
-            overlay_install(source_path, destination_path)
-        else:
-            if destination_path.exists() or destination_path.is_symlink():
-                remove_path(destination_path)
-            shutil.copy2(source_path, destination_path, follow_symlinks=False)
+    total = tree_size(source)
+    progress = ProgressDisplay("  Applying release files")
+    progress.update(0, total if total > 0 else None)
+    copied = 0
+
+    def overlay_directory(source_dir: Path, destination_dir: Path) -> None:
+        nonlocal copied
+        for source_path in source_dir.iterdir():
+            destination_path = destination_dir / source_path.name
+            if source_path.is_dir() and not source_path.is_symlink():
+                if destination_path.is_symlink() or (
+                    destination_path.exists() and not destination_path.is_dir()
+                ):
+                    remove_path(destination_path)
+                destination_path.mkdir(exist_ok=True)
+                overlay_directory(source_path, destination_path)
+            else:
+                if destination_path.exists() or destination_path.is_symlink():
+                    remove_path(destination_path)
+                copied = copy_file_with_progress(
+                    source_path,
+                    destination_path,
+                    progress,
+                    copied,
+                    total,
+                )
+
+    overlay_directory(source, destination)
+    progress.finish(total if total > 0 else None)
 
 
 def check_one(install_dir: Path, latest_version: str) -> str:
@@ -151,7 +171,14 @@ def update_one(
     ) as temporary_dir:
         staging = Path(temporary_dir)
         extracted_dir = staging / "extracted"
-        safe_extract_zip(archive_path, extracted_dir)
+        print(f"  Extracting release {latest_version}...")
+        extraction_progress = ProgressDisplay("  Extraction")
+        safe_extract_zip(
+            archive_path,
+            extracted_dir,
+            extraction_progress.update,
+        )
+        extraction_progress.finish()
         staged_install = extracted_dir / REPO_NAME
         if not staged_install.is_dir():
             raise RuntimeError(
@@ -166,7 +193,7 @@ def update_one(
         # Preserve the current tree, then overwrite paths supplied by the new
         # release. Files that the release no longer contains remain installed.
         merged_install = staging / "merged-install"
-        shutil.copytree(install_dir, merged_install, symlinks=True)
+        copy_tree_with_progress(install_dir, merged_install)
         overlay_install(staged_install, merged_install)
 
         # Both paths are on the same filesystem. Move the old install aside,
@@ -198,7 +225,8 @@ def main() -> int:
             print("No installations are registered yet.")
             return 0
 
-        print("Checking the latest GitHub release...")
+        step_count = 1 if args.check_only else 4
+        print(f"[1/{step_count}] Looking up the latest GitHub release...")
         release, asset = get_latest_release()
         latest_version = release["tag_name"]
 
@@ -210,10 +238,21 @@ def main() -> int:
 
         # Download once and reuse the archive for every registered installation.
         with tempfile.TemporaryDirectory(prefix=".bt3-updater-download-") as temp:
-            archive_path = download_asset(asset, Path(temp))
+            print(f"[2/4] Downloading release {latest_version}...")
+            download_progress = ProgressDisplay("Download")
+            archive_path = download_asset(
+                asset,
+                Path(temp),
+                download_progress.update,
+            )
+            download_progress.finish()
             failures = 0
-            for install_dir in install_paths:
+            for index, install_dir in enumerate(install_paths, start=1):
                 try:
+                    print(
+                        f"[3/4] Processing installation {index}/"
+                        f"{len(install_paths)}: {install_dir}"
+                    )
                     print(update_one(install_dir, latest_version, archive_path))
                 except (
                     OSError,
@@ -223,6 +262,8 @@ def main() -> int:
                 ) as exc:
                     failures += 1
                     print(f"Failed to update {install_dir}: {exc}", file=sys.stderr)
+
+            print("[4/4] Update run complete.")
 
         return 1 if failures else 0
     except (OSError, RuntimeError, requests.RequestException, ValueError) as exc:
