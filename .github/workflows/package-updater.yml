@@ -6,6 +6,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional published release tag to attach the packages to
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -87,7 +92,7 @@ jobs:
 
   attach-to-release:
     name: Attach bundles to release
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     needs: build
     runs-on: ubuntu-22.04
     permissions:
@@ -103,7 +108,7 @@ jobs:
       - name: Upload bundles to the published release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: >-
           gh release upload "$RELEASE_TAG"
           "${{ runner.temp }}/release-assets/"*
