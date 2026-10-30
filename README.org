@@ -10,12 +10,14 @@ This is more of a personal tool but its useful until the actual devs make it eas
 python3 run.py install
 python3 run.py install --parent "$HOME/Games"
 python3 run.py update
+python3 run.py update --check-only
 #+end_src
 The installation is created at ~$HOME/Games/Tenkaichi3Decomp~ in that example.
 The default interactive parent directory is also ~$HOME/Games~.
 The updater reads registered absolute paths from ~$HOME/.local/share/Tenkaichi3DecompUpdater/paths~.
 ** Important behavior
-- Updating replaces the installation with a fresh release tree; ~textures/~, ~saves/~, and ~bt3_settings.txt~ are copied forward by default. Add any additional user-data paths to ~PRESERVE_PATHS~ in ~src/update.py~.
+- Updating overlays the fresh release onto the existing installation: matching files are overwritten, and files absent from the release are retained. ~textures/~, ~saves/~, and ~bt3_settings.txt~ are preserved from the existing install when those paths are included in the release.
+- ~update --check-only~ reports the latest release and whether each registered installation needs an update, without downloading or replacing game files.
 - The ZIP's expected top-level folder is `Tenkaichi3Decomp/`. The scripts fail clearly if the release asset name or directory layout changes.
 - The updater refuses to overwrite an existing folder during a fresh install.
 - This is a starter, not a guarantee against every filesystem, network, or disk

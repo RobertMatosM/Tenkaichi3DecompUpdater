@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 import shutil
@@ -53,6 +54,62 @@ def preserve_user_data(old_install: Path, new_install: Path) -> None:
         else:
             new_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(old_path, new_path)
+
+
+def remove_path(path: Path) -> None:
+    """Remove a file, directory, or symlink before replacing it."""
+    if path.is_symlink() or not path.is_dir():
+        path.unlink()
+    else:
+        shutil.rmtree(path)
+
+
+def overlay_install(source: Path, destination: Path) -> None:
+    """Copy release files over an install while leaving unrelated files intact."""
+    for source_path in source.iterdir():
+        destination_path = destination / source_path.name
+        if source_path.is_dir() and not source_path.is_symlink():
+            if destination_path.is_symlink() or (
+                destination_path.exists() and not destination_path.is_dir()
+            ):
+                remove_path(destination_path)
+            destination_path.mkdir(exist_ok=True)
+            overlay_install(source_path, destination_path)
+        else:
+            if destination_path.exists() or destination_path.is_symlink():
+                remove_path(destination_path)
+            shutil.copy2(source_path, destination_path, follow_symlinks=False)
+
+
+def check_one(install_dir: Path, latest_version: str) -> str:
+    """Describe whether one registered installation has an update available."""
+    if not install_dir.is_dir():
+        return f"Skipping missing installation: {install_dir}"
+
+    current_tag = read_installed_version(install_dir)
+    if current_tag is None:
+        return (
+            f"Skipping {install_dir}: missing or invalid {METADATA_FILENAME}. "
+            "Reinstall/register it manually before updating."
+        )
+
+    try:
+        current_version = normalized_version(current_tag)
+        latest_parsed = normalized_version(latest_version)
+    except InvalidVersion:
+        return (
+            f"Skipping {install_dir}: cannot compare version tags "
+            f"{current_tag!r} and {latest_version!r}."
+        )
+
+    if current_version == latest_parsed:
+        return f"Already up to date: {install_dir} ({current_tag})"
+    if current_version > latest_parsed:
+        return (
+            f"Installed version {current_tag} is newer than GitHub's latest "
+            f"{latest_version}: {install_dir}"
+        )
+    return f"Update available: {install_dir} ({current_tag} -> {latest_version})"
 
 
 def update_one(
@@ -106,12 +163,18 @@ def update_one(
         preserve_user_data(install_dir, staged_install)
         write_metadata(staged_install, latest_version)
 
+        # Preserve the current tree, then overwrite paths supplied by the new
+        # release. Files that the release no longer contains remain installed.
+        merged_install = staging / "merged-install"
+        shutil.copytree(install_dir, merged_install, symlinks=True)
+        overlay_install(staged_install, merged_install)
+
         # Both paths are on the same filesystem. Move the old install aside,
-        # then swap in the staged one. Restore the old directory on failure.
+        # then swap in the staged overlay. Restore the old directory on failure.
         old_install_backup = staging / "previous-install"
         install_dir.rename(old_install_backup)
         try:
-            staged_install.rename(install_dir)
+            merged_install.rename(install_dir)
         except Exception:
             old_install_backup.rename(install_dir)
             raise
@@ -121,6 +184,14 @@ def update_one(
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check-only",
+        action="store_true",
+        help="Check for available updates without downloading or installing them.",
+    )
+    args = parser.parse_args()
+
     try:
         install_paths = read_install_paths()
         if not install_paths:
@@ -130,6 +201,12 @@ def main() -> int:
         print("Checking the latest GitHub release...")
         release, asset = get_latest_release()
         latest_version = release["tag_name"]
+
+        if args.check_only:
+            print(f"Latest release: {latest_version}")
+            for install_dir in install_paths:
+                print(check_one(install_dir, latest_version))
+            return 0
 
         # Download once and reuse the archive for every registered installation.
         with tempfile.TemporaryDirectory(prefix=".bt3-updater-download-") as temp:
