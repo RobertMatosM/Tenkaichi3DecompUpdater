@@ -18,7 +18,7 @@ python3 run.py gui
 On Windows, run the same commands with ~py run.py install~ (or ~py run.py update~, ~remove~, ~list~, and ~gui~).
 The GUI has buttons for install, update all registered installations, check for updates, and remove the selected installation. The installation list refreshes when an operation completes. Its activity panel and progress bar show operation progress.
 Linux users need Tkinter available to their Python installation (often provided by a system package named ~python3-tk~).
-The default installation is created at ~~/Games/Tenkaichi3Decomp~ on Linux or ~%USERPROFILE%\Games\Tenkaichi3Decomp~ on Windows.
+The default installation is created at ~$HOME/Games/Tenkaichi3Decomp~ on Linux or ~%USERPROFILE%\Games\Tenkaichi3Decomp~ on Windows.
 The updater stores registered absolute paths in ~$HOME/.local/share/Tenkaichi3DecompUpdater/paths~ on Linux and ~%LOCALAPPDATA%\Tenkaichi3DecompUpdater\paths~ on Windows.
 ** Packaged releases
 Published GitHub releases will include a portable Windows ZIP and Linux tarball containing the GUI app and its Python dependencies. The packaged app does not require users to install Python. Extract the archive and launch the updater executable inside its folder.
